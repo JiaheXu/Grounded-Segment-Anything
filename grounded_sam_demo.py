@@ -27,7 +27,7 @@ from segment_anything import (
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
-
+import time
 
 def load_image(image_path):
     # load image
@@ -113,6 +113,7 @@ def save_mask_data(output_dir, mask_list, box_list, label_list):
     mask_img = torch.zeros(mask_list.shape[-2:])
     for idx, mask in enumerate(mask_list):
         mask_img[mask.cpu().numpy()[0] == True] = value + idx + 1
+        print( mask.cpu().numpy().shape)
     plt.figure(figsize=(10, 10))
     plt.imshow(mask_img.numpy())
     plt.axis('off')
@@ -158,7 +159,7 @@ if __name__ == "__main__":
     parser.add_argument("--input_image", type=str, required=True, help="path to image file")
     parser.add_argument("--text_prompt", type=str, required=True, help="text prompt")
     parser.add_argument(
-        "--output_dir", "-o", type=str, default="outputs", required=True, help="output directory"
+        "--output_dir", "-o", type=str, default="output", required=True, help="output directory"
     )
 
     parser.add_argument("--box_threshold", type=float, default=0.3, help="box threshold")
@@ -192,9 +193,13 @@ if __name__ == "__main__":
     image_pil.save(os.path.join(output_dir, "raw_image.jpg"))
 
     # run grounding dino model
+    start = time.time()
     boxes_filt, pred_phrases = get_grounding_output(
         model, image, text_prompt, box_threshold, text_threshold, device=device
     )
+    end = time.time()
+    print("run grounding dino model time: ", end - start, " s")
+
 
     # initialize SAM
     if use_sam_hq:
@@ -203,6 +208,8 @@ if __name__ == "__main__":
         predictor = SamPredictor(sam_model_registry[sam_version](checkpoint=sam_checkpoint).to(device))
     image = cv2.imread(image_path)
     image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+    start = time.time()
     predictor.set_image(image)
 
     size = image_pil.size
@@ -221,6 +228,9 @@ if __name__ == "__main__":
         boxes = transformed_boxes.to(device),
         multimask_output = False,
     )
+    end = time.time()
+    print("SAM time: ", end - start, " s")
+
 
     # draw output image
     plt.figure(figsize=(10, 10))

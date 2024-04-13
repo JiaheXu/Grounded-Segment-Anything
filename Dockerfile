@@ -1,30 +1,85 @@
-FROM pytorch/pytorch:1.13.1-cuda11.6-cudnn8-devel
-
-# Arguments to build Docker Image using CUDA
-ARG USE_CUDA=0
-ARG TORCH_ARCH=
+FROM pytorch/pytorch:2.1.1-cuda12.1-cudnn8-devel
 
 ENV AM_I_DOCKER True
-ENV BUILD_WITH_CUDA "${USE_CUDA}"
-ENV TORCH_CUDA_ARCH_LIST "${TORCH_ARCH}"
-ENV CUDA_HOME /usr/local/cuda-11.6/
+ENV BUILD_WITH_CUDA True
+ENV CUDA_HOME /usr/local/cuda-12/
 
-RUN mkdir -p /home/appuser/Grounded-Segment-Anything
-COPY . /home/appuser/Grounded-Segment-Anything/
+# new user
+ARG DEBIAN_FRONTEND=noninteractive
 
-RUN apt-get update && apt-get install --no-install-recommends wget ffmpeg=7:* \
-    libsm6=2:* libxext6=2:* git=1:* nano=2.* \
-    vim=2:* -y \
-    && apt-get clean && apt-get autoremove && rm -rf /var/lib/apt/lists/*
 
-WORKDIR /home/appuser/Grounded-Segment-Anything
-RUN python -m pip install --no-cache-dir -e segment_anything
 
-# When using build isolation, PyTorch with newer CUDA is installed and can't compile GroundingDINO
-RUN python -m pip install --no-cache-dir wheel
-RUN python -m pip install --no-cache-dir --no-build-isolation -e GroundingDINO
+RUN apt-get update --no-install-recommends \ 
+    && apt-get install -y apt-utils 
 
-WORKDIR /home/appuser
-RUN pip install --no-cache-dir diffusers[torch]==0.15.1 opencv-python==4.7.0.72 \
-    pycocotools==2.0.6 matplotlib==3.5.3 \
-    onnxruntime==1.14.1 onnx==1.13.1 ipykernel==6.16.2 scipy gradio openai
+RUN apt-get install -y \
+  build-essential \
+  cmake \
+  cppcheck \
+  gdb \
+  git \
+  lsb-release \
+  software-properties-common \
+  sudo \
+  vim \
+  wget \
+  tmux \
+  curl \
+  less \
+  net-tools \
+  byobu \
+  libgl-dev \
+  iputils-ping \
+  nano \
+  unzip \
+ && apt-get clean \
+ && rm -rf /var/lib/apt/lists/*
+
+
+# Add a user with the same user_id as the user outside the container
+# Requires a docker build argument `user_id`
+
+ENV USERNAME developer
+RUN useradd -U --uid 1000 -ms /bin/bash $USERNAME \
+ && echo "$USERNAME:$USERNAME" | chpasswd \
+ && adduser $USERNAME sudo \
+ && echo "$USERNAME ALL=NOPASSWD: ALL" >> /etc/sudoers.d/$USERNAME
+
+# Commands below run as the developer user
+USER $USERNAME
+
+# When running a container start in the developer's home folder
+WORKDIR /home/$USERNAME
+
+
+# Set the timezone
+RUN export DEBIAN_FRONTEND=noninteractive \
+ && sudo apt-get update \
+ && sudo -E apt-get install -y \
+   tzdata \
+ && sudo ln -fs /usr/share/zoneinfo/America/New_York /etc/localtime \
+ && sudo dpkg-reconfigure --frontend noninteractive tzdata \
+ && sudo apt-get clean 
+
+# //////////////////////////////////////////////////////////////////////////////
+# ros install
+RUN sudo /bin/sh -c 'echo "deb http://packages.osrfoundation.org/gazebo/ubuntu-stable `lsb_release -cs` main" > /etc/apt/sources.list.d/gazebo-stable.list' \
+ && sudo /bin/sh -c 'wget -q http://packages.osrfoundation.org/gazebo.key -O - | APT_KEY_DONT_WARN_ON_DANGEROUS_USAGE=1 sudo apt-key add -' \
+ && sudo /bin/sh -c 'echo "deb http://packages.ros.org/ros/ubuntu $(lsb_release -sc) main" > /etc/apt/sources.list.d/ros-latest.list' \
+ && sudo /bin/sh -c 'apt-key adv --keyserver  hkp://keyserver.ubuntu.com:80 --recv-key C1CF6E31E6BADE8868B172B4F42ED6FBAB17C654' \
+ && sudo /bin/sh -c 'apt-key adv --keyserver keys.gnupg.net --recv-key C8B3A55A6F3EFCDE || apt-key adv --keyserver hkp://keyserver.ubuntu.com:80 --recv-key C8B3A55A6F3EFCDE' \
+ && sudo apt-get update --fix-missing
+
+RUN sudo apt-get install -y --no-install-recommends \
+  libboost-all-dev \
+  python3-catkin-tools \
+  gazebo11 \
+  libgazebo11-dev \
+  libignition-common-dev \
+  libignition-math4-dev
+
+#need to comment out for basestations
+RUN sudo apt-get install -y --no-install-recommends \
+  ros-noetic-desktop-full 
+
+RUN (sudo rosdep init && rosdep update) || echo faile
