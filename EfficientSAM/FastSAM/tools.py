@@ -1,6 +1,11 @@
 import numpy as np
 from PIL import Image
+# import matplotlib.pyplot as plt
+
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+
 import cv2
 import torch
 import os
@@ -167,7 +172,9 @@ def fast_process(
         os.makedirs(save_path)
     plt.axis("off")
     fig = plt.gcf()
-    plt.draw()
+    # plt.draw()
+    # fig=matplotlib.pyplot.figure()
+    fig.canvas.draw()
     buf = fig.canvas.tostring_rgb()
     cols, rows = fig.canvas.get_width_height()
     img_array = np.fromstring(buf, dtype=np.uint8).reshape(rows, cols, 3)
