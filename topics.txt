@@ -1,4 +1,12 @@
 /cam1/zed_node_A/left/image_rect_color
+/cam1/zed_node_A/depth/depth_registered
+/cam2/zed_node_B/left/image_rect_color
+/cam2/zed_node_B/depth/depth_registered
+/cam3/zed_node_C/left/image_rect_color
+/cam3/zed_node_C/depth/depth_registered
+
+
+/cam1/zed_node_A/left/image_rect_color
 /cam1/zed_node_A/left/camera_info
 D: [0.0, 0.0, 0.0, 0.0, 0.0]
 K: [739.1656494140625, 0.0, 951.3283081054688, 0.0, 739.1656494140625, 566.4527587890625, 0.0, 0.0, 1.0]
