@@ -16,7 +16,7 @@ import GroundingDINO.groundingdino.datasets.transforms as T
 from GroundingDINO.groundingdino.models import build_model
 from GroundingDINO.groundingdino.util.slconfig import SLConfig
 from GroundingDINO.groundingdino.util.utils import clean_state_dict, get_phrases_from_posmap
-
+import std_msgs
 
 # segment anything
 from segment_anything import (
@@ -159,7 +159,7 @@ class grounded_sam():
         self.point_cloud_pub3 = rospy.Publisher("cam3/gsa_point_cloud2", PointCloud2, queue_size=1)
         # self.object_depth_pub = rospy.Publisher("zedx/gsa_objects_depth", Image, queue_size=1)
 
-        self.ts = message_filters.ApproximateTimeSynchronizer([self.cam1_left_sub, self.cam1_depth_sub, self.cam2_left_sub, self.cam2_depth_sub, self.cam3_left_sub, self.cam3_depth_sub], 10, 1, allow_headerless=True)
+        self.ts = message_filters.ApproximateTimeSynchronizer([self.cam1_left_sub, self.cam1_depth_sub, self.cam2_left_sub, self.cam2_depth_sub, self.cam3_left_sub, self.cam3_depth_sub], 1000, 1, allow_headerless=True)
         self.ts.registerCallback(self.callback)
 
     def single_callback(self, cam_id, cam1_msg, depth_msg):
@@ -245,6 +245,7 @@ class grounded_sam():
                     ]
 
             header = Header()
+            header.stamp = rospy.Time.now()
             # header.frame_id = "zedx"
             header.frame_id = "cam" + str(cam_id)
             pc2 = point_cloud2.create_cloud(header, fields, points)
@@ -254,17 +255,19 @@ class grounded_sam():
         print("callback")
         start = time.time()
             
-        pointcloud1 = single_callback(1, cam1_msg, depth1_msg)
-        pointcloud2 = single_callback(2, cam2_msg, depth2_msg) 
-        pointcloud3 = single_callback(3, cam3_msg, depth3_msg)
+        pointcloud1 = self.single_callback(1, cam1_msg, depth1_msg)
+        pointcloud2 = self.single_callback(2, cam2_msg, depth2_msg) 
+        pointcloud3 = self.single_callback(3, cam3_msg, depth3_msg)
         
-        header = std_msgs.msg.Header
-        header.stamp = rospy.Time.now()
+        # header = std_msgs.msg.Header
+        # header.stamp = rospy.Time.now()
         
-        pointcloud1.header.stamp = header.stamp
-        pointcloud2.header.stamp = header.stamp
-        pointcloud3.header.stamp = header.stamp
-
+        # pointcloud1.header = header
+        # pointcloud2.header = header
+        # pointcloud3.header = header
+        # print(pointcloud1.header.stamp)
+        # print(pointcloud2.header.stamp)
+        # print(pointcloud3.header.stamp)
         self.point_cloud_pub1.publish(pointcloud1)
         self.point_cloud_pub2.publish(pointcloud2)
         self.point_cloud_pub3.publish(pointcloud3)   
