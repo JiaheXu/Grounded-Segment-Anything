@@ -67,22 +67,26 @@ import matplotlib.pyplot as plt
 #%matplotlib inline
 from mpl_toolkits.mplot3d import Axes3D
 from sklearn.cluster import DBSCAN
-from open3d_ros_helper import open3d_ros_helper as orh
+
 
 class clustering_and_filtering():
     def __init__(self):
+        self.xyz = None
+        self.rgb = None
+        self.labels = None
         self.model = DBSCAN(eps=0.003, min_samples=50)
-        self.point_cloud_sub = rospy.Subscriber("/points_concatenated", PointCloud2)
-        self.microwave_door_handel_pub = rospy.Publisher("/microwave_door_handel", PointCloud2)
-        self.microwave_door = rospy.Publisher("/microwave_door", PointCloud2)
-        self.blue_mug = rospy.Publisher("/blue_mug", PointCloud2)
-        self.gray_mug = rospy.Publisher("/gray_mug", PointCloud2)
-        self.white_mug = rospy.Publisher("/white_mug", PointCloud2)
+        self.point_cloud_sub = rospy.Subscriber("/points_concatenated", PointCloud2, self.callback)
+        self.blue_mug_pub = rospy.Publisher("/blue_mug", PointCloud2)
+        self.gray_mug_pub = rospy.Publisher("/gray_mug", PointCloud2)
+        self.white_mug_pub = rospy.Publisher("/white_mug", PointCloud2)
+        self.door_handle_pub = rospy.Publisher("/door_handle", PointCloud2)
+        self.microwave_door_pub = rospy.Publisher("/microwave_door", PointCloud2)
+                
 
     def callback(self, pointclouds_msg):
-
-        xyz = np.array([[0,0,0]])
-        rgb = np.array([[0,0,0]])
+        
+        self.xyz = np.array([[0,0,0]])
+        self.rgb = np.array([[0,0,0]])
         gen = point_cloud2.read_points(pointclouds_msg, skip_nans=True)
         int_data = list(gen)
         for x in int_data:
@@ -99,6 +103,10 @@ class clustering_and_filtering():
             # x,y,z can be retrieved from the x[0],x[1],x[2]
             xyz = np.append(xyz,[[x[0],x[1],x[2]]], axis = 0)
             rgb = np.append(rgb,[[r,g,b]], axis = 0)
+        self.xyz = xyz[1:]
+        self.rgb = rgb[1:]
+        self.labels = self.model.fit(self.xyz)
+        self.update_pointcloud()
 
     def run(self):
         rospy.spin()  
