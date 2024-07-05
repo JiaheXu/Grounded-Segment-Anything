@@ -1,3 +1,6 @@
+
+import rosbag
+import rospy
 import argparse
 import os
 import sys
@@ -7,6 +10,7 @@ import json
 import torch
 import PIL.Image as PIL_Image
 from scipy.spatial.transform import Rotation
+
 sys.path.append(os.path.join(os.getcwd(), "GroundingDINO"))
 sys.path.append(os.path.join(os.getcwd(), "segment_anything"))
 
@@ -28,7 +32,8 @@ import cv2
 import numpy as np
 import matplotlib.pyplot as plt
 import time
-
+import tf2_ros
+import tf2_py as tf2
 
 
 # ros things
@@ -42,6 +47,8 @@ from sensor_msgs import point_cloud2
 from sensor_msgs.msg import PointCloud2, PointField
 from std_msgs.msg import Header
 import struct
+import geometry_msgs.msg
+# from tf2_sensor_msgs.tf2_sensor_msgs import do_transform_cloud
 # import ros_numpy
 
 ###################################### IGEV stuff
@@ -164,36 +171,42 @@ class igev_grounded_sam():
             R1, R2, P1, P2, Q, validPixROI1, validPixROI2 = cv2.stereoRectify(self.cameraMatrix1[i], self.distCoeffs1[i], self.cameraMatrix2[i], self.distCoeffs2[i], self.imageSize[i], self.R, self.T)
             self.Q.append(Q)
 
-
         self.trans = []
         self.trans.append( self.get_transform( [0.501, -0.368, 0.604], [0.900, -0.000, 0.010, -0.436]) )
         self.trans.append( self.get_transform( [0.007, 0.089, 0.589], [0.640, -0.624, 0.307, -0.325]) )
         self.trans.append( self.get_transform( [1.106, -0.055, 0.599], [0.641, 0.617, -0.315, -0.331]) )
 
-        #Todo: feed a startup all zero image to the network
-        self.cam1_left_sub = message_filters.Subscriber(args.left_topic1, Image)
-        self.cam1_right_sub = message_filters.Subscriber(args.right_topic1, Image)
-        # self.cam1_depth_sub = message_filters.Subscriber(args.depth_topic1, Image)
+        self.bagIn = rosbag.Bag(args.bag_in, "r")
+        self.cam_topics = []
+        self.cam_topics.append( ["/cam1/zed_node_A/left/image_rect_color", "/cam1/zed_node_A/right/image_rect_color"] )
+        self.cam_topics.append( ["/cam2/zed_node_B/left/image_rect_color", "/cam2/zed_node_B/right/image_rect_color"] )
+        self.cam_topics.append( ["/cam3/zed_node_C/left/image_rect_color", "/cam3/zed_node_C/right/image_rect_color"] )
 
-        self.cam2_left_sub = message_filters.Subscriber(args.left_topic2, Image)
-        self.cam2_right_sub = message_filters.Subscriber(args.right_topic2, Image)
-        # self.cam2_depth_sub = message_filters.Subscriber(args.depth_topic2, Image)
 
-        self.cam3_left_sub = message_filters.Subscriber(args.left_topic3, Image)
-        self.cam3_right_sub = message_filters.Subscriber(args.right_topic3, Image)
-        # self.cam3_depth_sub = message_filters.Subscriber(args.depth_topic3, Image)
+        # #Todo: feed a startup all zero image to the network
+        # self.cam1_left_sub = message_filters.Subscriber(args.left_topic1, Image)
+        # self.cam1_right_sub = message_filters.Subscriber(args.right_topic1, Image)
+        # # self.cam1_depth_sub = message_filters.Subscriber(args.depth_topic1, Image)
 
+        # self.cam2_left_sub = message_filters.Subscriber(args.left_topic2, Image)
+        # self.cam2_right_sub = message_filters.Subscriber(args.right_topic2, Image)
+        # # self.cam2_depth_sub = message_filters.Subscriber(args.depth_topic2, Image)
+
+        # self.cam3_left_sub = message_filters.Subscriber(args.left_topic3, Image)
+        # self.cam3_right_sub = message_filters.Subscriber(args.right_topic3, Image)
+        # # self.cam3_depth_sub = message_filters.Subscriber(args.depth_topic3, Image)
+        self.point_cloud_pubs = []
         self.point_cloud_pub1 = rospy.Publisher("cam1/gsa_point_cloud2", PointCloud2, queue_size=1)
         self.point_cloud_pub2 = rospy.Publisher("cam2/gsa_point_cloud2", PointCloud2, queue_size=1)
         self.point_cloud_pub3 = rospy.Publisher("cam3/gsa_point_cloud2", PointCloud2, queue_size=1)
-        # self.object_depth_pub = rospy.Publisher("zedx/gsa_objects_depth", Image, queue_size=1)
+        self.point_cloud_pubs.append(self.point_cloud_pub1)
+        self.point_cloud_pubs.append(self.point_cloud_pub2)
+        self.point_cloud_pubs.append(self.point_cloud_pub3)
+        # # self.object_depth_pub = rospy.Publisher("zedx/gsa_objects_depth", Image, queue_size=1)
 
-
-
-        self.ts = message_filters.ApproximateTimeSynchronizer([self.cam1_left_sub, self.cam1_right_sub, self.cam2_left_sub, self.cam2_right_sub, self.cam3_left_sub, self.cam3_right_sub], 1000, 1, allow_headerless=True)
-        self.ts.registerCallback(self.callback)
-
-
+        # self.ts = message_filters.ApproximateTimeSynchronizer([self.cam1_left_sub, self.cam1_right_sub, self.cam2_left_sub, self.cam2_right_sub, self.cam3_left_sub, self.cam3_right_sub], 1000, 1, allow_headerless=True)
+        # self.ts.registerCallback(self.callback)
+    
     def get_transform(self, trans, quat):
         t = np.eye(4)
         t[:3, :3] = Rotation.from_quat( quat ).as_matrix()
@@ -205,7 +218,6 @@ class igev_grounded_sam():
         point = np.array(point)
         point = trans @ point.reshape(-1,1)
         return point[0], point[1], point[2]
-
 
     def igev_callback(self, cam_id, image1, image2):
         with torch.no_grad():
@@ -242,7 +254,7 @@ class igev_grounded_sam():
             return igev_depth
 
 
-    def single_callback(self, cam_id, image1, image_depth):
+    def single_callback(self, cam_id, image1, image_depth, trans):
         with torch.no_grad():
             image1_np = np.array(image1)
             image_depth_np = np.array(image_depth)            
@@ -296,13 +308,13 @@ class igev_grounded_sam():
             xs , ys = np.where(mask_img>0) 
             points = []
             lim = 8
+
+            
             for i in range( xs.shape[0] ):
                 x = image_3d[ xs[i] ][ ys[i] ][0]
                 y = image_3d[ xs[i] ][ ys[i] ][1]
                 z = image_3d[ xs[i] ][ ys[i] ][2]
-
-                x, y, z = self.transform([x,y,z,1], self.trans[cam_id-1])
-
+                x, y, z = self.transform([x,y,z,1], trans)
                 r = image1_np[ xs[i] ][ ys[i] ][0]
                 g = image1_np[ xs[i] ][ ys[i] ][1]
                 b = image1_np[ xs[i] ][ ys[i] ][2]
@@ -359,23 +371,80 @@ class igev_grounded_sam():
         pointcloud2 = self.single_callback(2, left2, igev_depth2) 
         pointcloud3 = self.single_callback(3, left3, igev_depth3)
         
-        # header = std_msgs.msg.Header
-        # header.stamp = rospy.Time.now()
-        
-        # pointcloud1.header = header
-        # pointcloud2.header = header
-        # pointcloud3.header = header
-        # print(pointcloud1.header.stamp)
-        # print(pointcloud2.header.stamp)
-        # print(pointcloud3.header.stamp)
-        self.point_cloud_pub1.publish(pointcloud1)
-        self.point_cloud_pub2.publish(pointcloud2)
-        self.point_cloud_pub3.publish(pointcloud3)   
-        end = time.time()
-        print("three pointscloud time: ", end - start, " s")
+
+        # self.point_cloud_pub1.publish(pointcloud1)
+        # self.point_cloud_pub2.publish(pointcloud2)
+        # self.point_cloud_pub3.publish(pointcloud3)   
+        # end = time.time()
+        # print("three pointscloud time: ", end - start, " s")
 
     def run(self):
-        rospy.spin()  
+        # t = geometry_msgs.msg.TransformStamped()
+        # t.transform.translation.x = 0.0
+        # t.transform.translation.y = 2.0
+        # t.transform.translation.z = 0.0
+        # t.transform.rotation.x = 0.0
+        # t.transform.rotation.y = 0.0
+        # t.transform.rotation.z = 0.0
+        # t.transform.rotation.w = 1.0
+        
+        count = 0
+        left_cam_images = []
+        right_cam_images = []
+        igev_depth_images = []
+        limit = 1000
+        for idx, cam_topic in enumerate( self.cam_topics, 0 ):
+            left_cam_image = []
+            right_cam_image = []
+            igev_depth_image = []
+            for topic, msg, t in self.bagIn.read_messages(topics=[cam_topic[0]]):
+                left = bridge.imgmsg_to_cv2(msg) #bgra
+                left = cv2.cvtColor(left, cv2.COLOR_BGRA2RGB)
+                left_cam_image.append(left)
+                # count += 1
+                # if(count >limit):
+                #     count = 0
+                #     break
+            
+            for topic, msg, t in self.bagIn.read_messages(topics=[cam_topic[1]]):
+                right = bridge.imgmsg_to_cv2(msg) #bgra
+                right = cv2.cvtColor(right, cv2.COLOR_BGRA2RGB)
+                right_cam_image.append(right)
+                
+                # count += 1
+                # if(count >limit):
+                #     count = 0
+                #     break
+
+            for i in range( min(len(left_cam_image), len(right_cam_image))):
+                igev_depth = self.igev_callback(idx, left_cam_image[i], right_cam_image[i])
+                igev_depth_image.append(igev_depth)
+            
+            left_cam_images.append(left_cam_image)
+            right_cam_images.append(right_cam_image)
+            igev_depth_images.append(igev_depth_image)
+
+        left_cam_images = np.array(left_cam_images)
+        right_cam_images = np.array(right_cam_images)
+        igev_depth_images = np.array(igev_depth_images)
+            
+        data = {}
+        data["igev_depth_images"] = igev_depth_images
+        data["right_cam_images"] = right_cam_images
+        data["left_cam_images"] = left_cam_images
+        np.save(args.bag_in + "_igev", data)
+        # count = count // 3
+        
+        for idx in range(left_cam_images.shape[1]):
+            for cam_idx in range( len(self.cam_topics) ) :
+                pointcloud = self.single_callback(cam_idx, left_cam_images[cam_idx][idx], igev_depth_images[cam_idx][idx], self.trans[cam_idx])
+                self.point_cloud_pubs[cam_idx].publish(pointcloud)
+            time.sleep(1)
+
+
+            
+       
+
 
     def igev_load_image(self, img):
         img = img.astype(np.uint8)
@@ -383,20 +452,20 @@ class igev_grounded_sam():
         return img[None].to(DEVICE)
 
     def disparity_to_depth(self, cam_id, disparity):
-        focal_length = self.cameraMatrix1[cam_id-1][0][0] * 2.0 /3.0
+        focal_length = self.cameraMatrix1[cam_id][0][0] * 2.0 /3.0
         
         if(disparity.shape[0] == 1080):
-            focal_length = self.cameraMatrix1[cam_id-1][0][0]
+            focal_length = self.cameraMatrix1[cam_id][0][0]
 
         depth = (0.12 * focal_length) / disparity
         # depth_valid =  np.logical_and( np.logical_not(np.isnan(image_depth_np)), np.logical_not(np.isinf(image_depth_np)) )
         return depth
 
     def depth_to_disparity(self, cam_id, depth):
-        focal_length = self.cameraMatrix1[cam_id-1][0][0] * 2.0 /3.0
+        focal_length = self.cameraMatrix1[cam_id][0][0] * 2.0 /3.0
         
         if(depth.shape[0] == 1080):
-            focal_length = self.cameraMatrix1[cam_id-1][0][0]
+            focal_length = self.cameraMatrix1[cam_id][0][0]
 
         disparity = (0.12 * focal_length) / depth
         
@@ -602,6 +671,10 @@ if __name__ == "__main__":
 
     # parser.add_argument('--downsampling', type=bool, default=False, help="downsampling image dimension")
     # parser.add_argument('--downsampling', type=bool, default=False, help="downsampling image dimension")
+
+    # Ros bag related
+    parser.add_argument("-b", "--bag_in", help="Input ROS bag name.")
+    # parser.add_argument("-o", "--bag_out", help="Output ROS bag name.")
 
     args = parser.parse_args()
 

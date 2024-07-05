@@ -6,7 +6,7 @@ import numpy as np
 import json
 import torch
 import PIL.Image as PIL_Image
-from scipy.spatial.transform import Rotation
+
 sys.path.append(os.path.join(os.getcwd(), "GroundingDINO"))
 sys.path.append(os.path.join(os.getcwd(), "segment_anything"))
 
@@ -165,14 +165,9 @@ class igev_grounded_sam():
             self.Q.append(Q)
 
 
-        self.trans = []
-        self.trans.append( self.get_transform( [0.501, -0.368, 0.604], [0.900, -0.000, 0.010, -0.436]) )
-        self.trans.append( self.get_transform( [0.007, 0.089, 0.589], [0.640, -0.624, 0.307, -0.325]) )
-        self.trans.append( self.get_transform( [1.106, -0.055, 0.599], [0.641, 0.617, -0.315, -0.331]) )
-
         #Todo: feed a startup all zero image to the network
-        self.cam1_left_sub = message_filters.Subscriber(args.left_topic1, Image)
-        self.cam1_right_sub = message_filters.Subscriber(args.right_topic1, Image)
+        # self.cam1_left_sub = message_filters.Subscriber(args.left_topic1, Image)
+        # self.cam1_right_sub = message_filters.Subscriber(args.right_topic1, Image)
         # self.cam1_depth_sub = message_filters.Subscriber(args.depth_topic1, Image)
 
         self.cam2_left_sub = message_filters.Subscriber(args.left_topic2, Image)
@@ -188,24 +183,8 @@ class igev_grounded_sam():
         self.point_cloud_pub3 = rospy.Publisher("cam3/gsa_point_cloud2", PointCloud2, queue_size=1)
         # self.object_depth_pub = rospy.Publisher("zedx/gsa_objects_depth", Image, queue_size=1)
 
-
-
-        self.ts = message_filters.ApproximateTimeSynchronizer([self.cam1_left_sub, self.cam1_right_sub, self.cam2_left_sub, self.cam2_right_sub, self.cam3_left_sub, self.cam3_right_sub], 1000, 1, allow_headerless=True)
+        self.ts = message_filters.ApproximateTimeSynchronizer([self.cam2_left_sub, self.cam2_right_sub, self.cam3_left_sub, self.cam3_right_sub], 1000, 1, allow_headerless=True)
         self.ts.registerCallback(self.callback)
-
-
-    def get_transform(self, trans, quat):
-        t = np.eye(4)
-        t[:3, :3] = Rotation.from_quat( quat ).as_matrix()
-        t[:3, 3] = trans
-        return t
-
-    def transform(self, point, trans):
-        # print(trans.shape)
-        point = np.array(point)
-        point = trans @ point.reshape(-1,1)
-        return point[0], point[1], point[2]
-
 
     def igev_callback(self, cam_id, image1, image2):
         with torch.no_grad():
@@ -300,9 +279,6 @@ class igev_grounded_sam():
                 x = image_3d[ xs[i] ][ ys[i] ][0]
                 y = image_3d[ xs[i] ][ ys[i] ][1]
                 z = image_3d[ xs[i] ][ ys[i] ][2]
-
-                x, y, z = self.transform([x,y,z,1], self.trans[cam_id-1])
-
                 r = image1_np[ xs[i] ][ ys[i] ][0]
                 g = image1_np[ xs[i] ][ ys[i] ][1]
                 b = image1_np[ xs[i] ][ ys[i] ][2]
@@ -322,20 +298,19 @@ class igev_grounded_sam():
             header = Header()
             header.stamp = rospy.Time.now()
             # header.frame_id = "zedx"
-            # header.frame_id = "cam" + str(cam_id)
-            header.frame_id = "map"
+            header.frame_id = "cam" + str(cam_id)
             pc2 = point_cloud2.create_cloud(header, fields, points)
             return pc2
 
-    def callback(self, left1_msg, right1_msg, left2_msg, right2_msg, left3_msg, right3_msg):
+    def callback(self, left2_msg, right2_msg, left3_msg, right3_msg):
         print("callback")
         start = time.time()
 
-        left1 = bridge.imgmsg_to_cv2(left1_msg) #bgra
-        left1 = cv2.cvtColor(left1, cv2.COLOR_BGRA2RGB)
-        right1 = bridge.imgmsg_to_cv2(right1_msg) #bgra
-        right1 = cv2.cvtColor(right1, cv2.COLOR_BGRA2RGB)
-        # depth1 = bridge.imgmsg_to_cv2(depth1_msg)
+        # left1 = bridge.imgmsg_to_cv2(left1_msg) #bgra
+        # left1 = cv2.cvtColor(left1, cv2.COLOR_BGRA2RGB)
+        # right1 = bridge.imgmsg_to_cv2(right1_msg) #bgra
+        # right1 = cv2.cvtColor(right1, cv2.COLOR_BGRA2RGB)
+        # # depth1 = bridge.imgmsg_to_cv2(depth1_msg)
 
         left2 = bridge.imgmsg_to_cv2(left2_msg) #bgra
         left2 = cv2.cvtColor(left2, cv2.COLOR_BGRA2RGB)
@@ -349,13 +324,13 @@ class igev_grounded_sam():
         right3 = cv2.cvtColor(right3, cv2.COLOR_BGRA2RGB)
         # depth3 = bridge.imgmsg_to_cv2(depth3_msg)
         
-        igev_depth1 = self.igev_callback(1, left1, right1)
+        # igev_depth1 = self.igev_callback(1, left1, right1)
         igev_depth2 = self.igev_callback(2, left2, right2)
         igev_depth3 = self.igev_callback(3, left3, right3)
         print("IGEV_finshed")
         # print("depth1: ", depth1.shape)
         # print("igev_depth1: ", igev_depth1.shape)
-        pointcloud1 = self.single_callback(1, left1, igev_depth1)
+        # pointcloud1 = self.single_callback(1, left1, igev_depth1)
         pointcloud2 = self.single_callback(2, left2, igev_depth2) 
         pointcloud3 = self.single_callback(3, left3, igev_depth3)
         
@@ -368,7 +343,7 @@ class igev_grounded_sam():
         # print(pointcloud1.header.stamp)
         # print(pointcloud2.header.stamp)
         # print(pointcloud3.header.stamp)
-        self.point_cloud_pub1.publish(pointcloud1)
+        # self.point_cloud_pub1.publish(pointcloud1)
         self.point_cloud_pub2.publish(pointcloud2)
         self.point_cloud_pub3.publish(pointcloud3)   
         end = time.time()
@@ -523,7 +498,7 @@ class igev_grounded_sam():
 
 
 def demo(args):
-    rospy.init_node("zedx_igev_grounded_sam_node")
+    rospy.init_node("aloha_2cams")
     igev_grounded_sam_node = igev_grounded_sam(args)
     igev_grounded_sam_node.run()
 
