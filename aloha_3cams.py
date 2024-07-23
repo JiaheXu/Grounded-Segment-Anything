@@ -142,8 +142,8 @@ class grounded_sam():
 
         self.trans = []
         self.trans.append( self.get_transform( [-0.336, 0.060, 0.455], [0.653, -0.616, 0.305, -0.317]) ) #rosrun tf tf_echo  map cam1
-        self.trans.append( self.get_transform( [0.090, 0.582, 0.449], [-0.037, 0.895, -0.443, 0.031]) )
-        self.trans.append( self.get_transform( [0.015, -0.524, 0.448], [0.887, 0.013, 0.001, -0.461]) )
+        self.trans.append( self.get_transform( [0.328, 0.567, 0.455], [0.278, 0.819, -0.478, -0.154]) )
+        self.trans.append( self.get_transform( [0.293, -0.544, 0.449], [0.856, 0.238, -0.116, -0.444]) )
 
         self.points = []
         self.fields = [PointField('x', 0, PointField.FLOAT32, 1),
@@ -468,7 +468,7 @@ if __name__ == "__main__":
         "--use_sam_hq", action="store_true", help="using sam-hq for prediction"
     )
     # parser.add_argument("--input_image", type=str, required=True, help="path to image file")
-    parser.add_argument("--text_prompt", type=str, required=False, default="mug", help="text prompt")
+    parser.add_argument("--text_prompt", type=str, required=False, default="boot", help="text prompt")
     parser.add_argument(
         "--output_dir", "-o", type=str, default="output", help="output directory"
     )

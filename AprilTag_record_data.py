@@ -14,6 +14,7 @@ from std_msgs.msg import Bool, Int32, UInt8,UInt32MultiArray
 from visualization_msgs.msg import Marker
 import numpy as np
 
+from sensor_msgs.msg import Joy
 
 from std_msgs.msg import Bool, String
 from nav_msgs.msg import Odometry
@@ -56,13 +57,67 @@ class AutoAutoCal:
         decode_sharpening=0.25,
         debug=0
         )     
+
+        self.left_joystick_x = 0
+        self.left_joystick_y = 1
+        self.left_trigger = 2
+        self.right_joystick_x = 3
+        self.right_joystick_y = 4
+        self.right_trigger = 5
+        self.dpad_left_right = 6
+        self.dpad_up_down = 7
+
+        self.max_idx = max(
+            self.left_trigger,
+            self.left_joystick_x,
+            self.left_joystick_y,
+            self.dpad_up_down,
+            self.right_joystick_x,
+            self.right_joystick_y,
+            self.right_trigger,
+        )
+
+        # Buttons for control
+        self.a_button = 0
+        self.b_button = 1
+        self.x_button = 2
+        self.y_button = 3
+        self.lb_button = 4
+        self.rb_button = 5
+        self.back_button = 6
+        self.start_button = 7
+        self.xbox_button = 8
+        self.left_joystick_button = 9
+        self.right_joystick_button = 10
         
+        self.max_button = max(
+            self.b_button,
+            self.y_button,
+            self.x_button,
+            self.a_button,
+            self.rb_button,
+            self.back_button,
+            self.start_button,
+            self.left_joystick_button,
+            self.right_joystick_button,
+            self.lb_button
+        )
+
+        # states
+        self.recording = False
+        # data
+        self.current_stack = []
+        self.success_stop_pressed_last = False
+        self.failure_stop_pressed_last = False
+
         self.odom=Odometry()
         self.odom_pub = rospy.Publisher( "AprilTagOdom", Odometry, queue_size=1)
         
         self.cam_odom=Odometry()
         self.global_cam_pub = rospy.Publisher("CamOdom", Odometry, queue_size=1)
 
+        self.joystick_sub = rospy.Subscriber("joy", Joy, self.joyCallback)
+        
         # Camera Instrinsics used for Undistorting the Fisheye Images
         self.DIM=(1080, 1920)
         self.K=np.array([[738.52671777, 0., 959.40116984], [0. ,739.11251938,  575.51338683], [0.0, 0.0, 1.0]])
@@ -99,7 +154,10 @@ class AutoAutoCal:
                     # self.odom.pose.pose.position = Point(original_estimated_trans[2], -original_estimated_trans[0], -original_estimated_trans[1])
                     self.odom.pose.pose.position = Point(original_estimated_trans[0], original_estimated_trans[1], original_estimated_trans[2])
 
-                    
+                    x = original_estimated_trans[0]
+                    y = original_estimated_trans[1]
+                    z = original_estimated_trans[2]
+
                     self.odom.pose.pose.orientation.x=odom_quat[0]
                     self.odom.pose.pose.orientation.y=odom_quat[1]
                     self.odom.pose.pose.orientation.z=odom_quat[2]
@@ -108,8 +166,9 @@ class AutoAutoCal:
                     self.odom.header.stamp=rospy.Time.now()
                     self.odom.header.frame_id="cam1"
                     self.odom_pub.publish(self.odom)
+                    self.tag_pose = [ x, y, z, odom_quat[0], odom_quat[1], odom_quat[2], odom_quat[3] ]
+                    self.current_stack.append(self.tag_pose)
 
-                    
                     global_cam_rot = original_estimated_rot.transpose()
                     global_cam_trans = -1*global_cam_rot@original_estimated_trans
 
@@ -126,6 +185,52 @@ class AutoAutoCal:
                     self.cam_odom.header.stamp=rospy.Time.now()
                     self.cam_odom.header.frame_id="map"
                     self.global_cam_pub.publish(self.cam_odom)
+
+    def save_data(self):
+        now = time.time()
+        print("collected ", len(self.current_stack), " pairs of data")
+        print("collected ", len(self.current_stack), " pairs of data")
+        print("collected ", len(self.current_stack), " pairs of data")
+        np.save( str(now), self.current_stack)
+    
+    def clean_data(self):
+        self.current_stack.clear()
+
+    def episode_end(self, success_flag):
+        if( success_flag == True):
+            self.save_data()
+        self.clean_data()
+
+    def joyCallback(self, msg):
+        start_recording_pressed = msg.buttons[self.triangle_button]
+        success_stop_pressed = msg.buttons[self.o_button]
+        failure_stop_pressed = msg.buttons[self.x_button]
+
+
+        if( (start_recording_pressed == True) and (self.start_recording_pressed_last == False) ):
+            if( self.recording == False ):
+                self.get_logger().info('start recording!!!')
+            else:
+                self.recording = True
+                self.episode_end(False)
+                self.get_logger().info('start recording!!!')
+                # self.get_logger().info('start recording!!!')                
+
+        if( (success_stop_pressed == True) and (self.success_stop_pressed_last == False) ):
+            if( self.recording == True ):
+                self.recording = False
+                self.episode_end(True)
+                self.get_logger().info('episode succeed!!!')
+
+        if( (failure_stop_pressed == True) and (self.failure_stop_pressed_last == False) ):
+            if( self.recording == True ):
+                self.recording = False
+                self.episode_end(False)
+                self.get_logger().info('episode failed!!!')
+
+        self.start_recording_pressed_last = start_recording_pressed
+        self.success_stop_pressed_last = success_stop_pressed           
+        self.failure_stop_pressed_last = failure_stop_pressed
 
 if __name__ == '__main__':
     rospy.init_node('RobotAutoCalibrationNode', anonymous=True)   
