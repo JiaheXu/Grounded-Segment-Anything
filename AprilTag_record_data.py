@@ -104,6 +104,9 @@ class AutoAutoCal:
         )
 
         # states
+        self.last_data_time = time.time()
+        self.time_diff = 2.0
+
         self.recording = False
         # data
         self.current_stack = []
@@ -129,12 +132,16 @@ class AutoAutoCal:
 
     def image_callback(self, msg):
         # Process the received image data here
+        print("in call back")
         cv_image = self.bridge.imgmsg_to_cv2(msg, desired_encoding="rgb8")
         gray_image = cv2.cvtColor(cv_image, cv2.COLOR_BGR2GRAY)
         # print()
         result = self.detector.detect(gray_image, True, camera_params=(738.52671777, 739.11251938, 959.40116984, 575.51338683),tag_size = 0.154) 
         # Camera Intrinsics after undistorting fisheye images, Tag Size is the length of the side of an aprilTag
-        
+        current_time = time.time()
+        if(current_time - self.last_data_time < self.time_diff):
+            return
+
         if result: 
             # print("*****************************************************************************************")
             # print(result)
@@ -166,14 +173,16 @@ class AutoAutoCal:
                     self.odom.header.stamp=rospy.Time.now()
                     self.odom.header.frame_id="cam1"
                     self.odom_pub.publish(self.odom)
-                    self.tag_pose = [ x, y, z, odom_quat[0], odom_quat[1], odom_quat[2], odom_quat[3] ]
+                    self.tag_pose = np.array([ x, y, z, odom_quat[0], odom_quat[1], odom_quat[2], odom_quat[3] ])
+                    print("got a point")
+                    self.last_data_time = current_time
                     self.current_stack.append(self.tag_pose)
 
                     global_cam_rot = original_estimated_rot.transpose()
                     global_cam_trans = -1*global_cam_rot@original_estimated_trans
 
-                    print("trans: ", global_cam_trans)
-                    print("rot (x y z w): \n", self.odom.pose.pose.orientation)
+                    # print("trans: ", global_cam_trans)
+                    # print("rot (x y z w): \n", self.odom.pose.pose.orientation)
 
                     roll, pitch, yaw = euler_from_matrix(global_cam_rot)
                     odom_quat = quaternion_from_euler(roll, pitch, yaw)
@@ -202,31 +211,32 @@ class AutoAutoCal:
         self.clean_data()
 
     def joyCallback(self, msg):
-        start_recording_pressed = msg.buttons[self.triangle_button]
-        success_stop_pressed = msg.buttons[self.o_button]
-        failure_stop_pressed = msg.buttons[self.x_button]
+        start_recording_pressed = msg.buttons[self.y_button]
+        success_stop_pressed = msg.buttons[self.a_button]
+        failure_stop_pressed = msg.buttons[self.b_button]
 
 
         if( (start_recording_pressed == True) and (self.start_recording_pressed_last == False) ):
             if( self.recording == False ):
-                self.get_logger().info('start recording!!!')
+                self.recording = True
+                print('start recording!!!')
             else:
                 self.recording = True
                 self.episode_end(False)
-                self.get_logger().info('start recording!!!')
-                # self.get_logger().info('start recording!!!')                
+                print('start recording!!!')
+                # print'start recording!!!')                
 
         if( (success_stop_pressed == True) and (self.success_stop_pressed_last == False) ):
             if( self.recording == True ):
                 self.recording = False
                 self.episode_end(True)
-                self.get_logger().info('episode succeed!!!')
+                print('episode succeed!!!')
 
         if( (failure_stop_pressed == True) and (self.failure_stop_pressed_last == False) ):
             if( self.recording == True ):
                 self.recording = False
                 self.episode_end(False)
-                self.get_logger().info('episode failed!!!')
+                print('episode failed!!!')
 
         self.start_recording_pressed_last = start_recording_pressed
         self.success_stop_pressed_last = success_stop_pressed           
