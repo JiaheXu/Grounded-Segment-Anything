@@ -105,7 +105,7 @@ class AutoAutoCal:
 
         # states
         self.last_data_time = time.time()
-        self.time_diff = 2.0
+        self.time_diff = 0.1
 
         self.recording = False
         # data
@@ -180,7 +180,7 @@ class AutoAutoCal:
                     print("save ###")
                     self.last_data_time = current_time
                     self.current_stack.append(self.tag_pose)
-                    self.recording = False
+                    #self.recording = False
 
                     global_cam_rot = original_estimated_rot.transpose()
                     global_cam_trans = -1*global_cam_rot@original_estimated_trans
@@ -223,24 +223,24 @@ class AutoAutoCal:
         if( (start_recording_pressed == True) and (self.start_recording_pressed_last == False) ):
             if( self.recording == False ):
                 self.recording = True
-                # print('start recording!!!')
+                print('start recording!!!')
             else:
                 self.recording = True
                 self.episode_end(False)
-                # print('start recording!!!')
+                print('start recording!!!')
                 # print'start recording!!!')                
 
         if( (success_stop_pressed == True) and (self.success_stop_pressed_last == False) ):
-            # if( self.recording == True ):
-            self.recording = False
-            self.episode_end(True)
-            print('episode succeed!!!')
+            if( self.recording == True ):
+            	self.recording = False
+            	self.episode_end(True)
+            	print('episode succeed!!!')
 
         if( (failure_stop_pressed == True) and (self.failure_stop_pressed_last == False) ):
-            # if( self.recording == True ):
-            self.recording = False
-            self.episode_end(False)
-            print('episode failed!!!')
+            if( self.recording == True ):
+            	self.recording = False
+            	self.episode_end(False)
+            	print('episode failed!!!')
 
         self.start_recording_pressed_last = start_recording_pressed
         self.success_stop_pressed_last = success_stop_pressed           
