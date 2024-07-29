@@ -46,7 +46,8 @@ from sensor_msgs.msg import PointCloud2, PointField
 from std_msgs.msg import Header
 import struct
 from sensor_msgs import point_cloud2
-import ros_numpy  # apt install ros-noetic-ros-numpy numpy==1.23.0
+from lib_cloud_conversion_between_Open3D_and_ROS import convertCloudFromRosToOpen3d
+# import ros_numpy  # apt install ros-noetic-ros-numpy numpy==1.23.0
 # import ros_numpy
 
 ###################################### IGEV stuff
@@ -60,81 +61,112 @@ import glob
 import torch
 from tqdm import tqdm
 from pathlib import Path
+import copy
 
 import ctypes
 import numpy as np
 import matplotlib.pyplot as plt
 #%matplotlib inline
 from mpl_toolkits.mplot3d import Axes3D
-from sklearn.cluster import DBSCAN
-
+# from sklearn.cluster import DBSCAN
+import open3d as o3d
+from nav_msgs.msg import Odometry
+from std_msgs.msg import Bool, Int32, UInt8,UInt32MultiArray
+from geometry_msgs.msg import Pose,Quaternion, Vector3, Point
 
 class clustering_and_filtering():
     def __init__(self):
         self.xyz = None
         self.rgb = None
         self.labels = None
-        self.model = DBSCAN(eps=0.003, min_samples=50)
-        self.point_cloud_sub = rospy.Subscriber("/points_concatenated", PointCloud2, self.callback)
-        self.blue_mug_pub = rospy.Publisher("/blue_mug", PointCloud2)
-        self.gray_mug_pub = rospy.Publisher("/gray_mug", PointCloud2)
-        self.white_mug_pub = rospy.Publisher("/white_mug", PointCloud2)
-        self.door_handle_pub = rospy.Publisher("/door_handle", PointCloud2)
-        self.microwave_door_pub = rospy.Publisher("/microwave_door", PointCloud2)
+
+        self.bound_box = np.array( [ [0.0, 1.0], [ -1.0 , 0.0], [ 0.0 , 0.4] ] )
+
+        self.mug_blue_color = np.array( [134.42705382, 154.07507082, 134.78753541] )
+        self.mug1_color = np.array([129.5595624,  130.43354943, 117.42058347])
+        self.mug2_color = np.array( [136.10209601, 156.15821501, 135.78904665])
+        # self.model = DBSCAN(eps=0.003, min_samples=50)
+        self.point_cloud_sub = rospy.Subscriber("/object_point_cloud2", PointCloud2, self.callback)
+
+        self.mug_blue_odom=Odometry()
+        self.mug_blue = rospy.Publisher("mug_blue", Odometry, queue_size=1)
+
+        self.mug1_odom=Odometry()
+        self.mug1 = rospy.Publisher("mug1", Odometry, queue_size=1)
+
+        self.mug2_odom=Odometry()
+        self.mug2 = rospy.Publisher("mug2", Odometry, queue_size=1)
+
+        self.mug_number = rospy.Publisher("mug_number", Int32, queue_size=1)
+
+    def update_position(self, pcd, labels):
+        max_label = labels.max() + 1
+        if(max_label < 1):
+            return
+        npy_xyz = np.asarray( pcd.points )
+        npy_rgb = np.asarray( pcd.colors ) * 255.0
+
+        for idx in range(max_label):
+            pcd_idx = np.where(labels == idx)
+            pose = np.mean( npy_xyz[pcd_idx], axis = 0 )
+            rgb = np.mean( npy_rgb[pcd_idx], axis = 0 )
+            # print("pose: ", pose)
+            # print("rgb: ", rgb)
+            # print("idx: ", idx)
+            diff1 = np.sum( np.abs( rgb - self.mug_blue_color) )
+            diff2 = np.sum( np.abs( rgb - self.mug1_color) )
+            diff3 = np.sum( np.abs( rgb - self.mug2_color) )
+            min_diff = np.min( np.array( [diff1, diff2, diff3]))
+            # print(" ")
+            if( np.abs(diff1 - min_diff) <1e-4):
+                self.mug_blue_odom.pose.pose.position = Point(pose[0], pose[1], pose[2])
+                self.mug_blue_odom.header.stamp=rospy.Time.now()
+                self.mug_blue_odom.header.frame_id="map"
                 
-    def update_pointcloud():
-        for idx in range( max(np.unique(self.labels)) ):
-            points_idx = np.where( self.labels==idx)
 
-            if(points_idx > int(0.5*self.labels.shape[0])): #microwave_door
-                print("microwave_door")
-                handle_idx = np.where( self.labels==idx and np.max(self.rgb - np.array([255, 153,204])) < 30)
-                print("handle_idx: ", len(handle_idx[0]))
+            if( np.abs(diff2 - min_diff) <1e-4):
+                self.mug1_odom.pose.pose.position = Point(pose[0], pose[1], pose[2])
+                self.mug1_odom.header.stamp=rospy.Time.now()
+                self.mug1_odom.header.frame_id="map"
+                
 
-            minx = np.min(self.xyz[points_idx][0])
-            maxx = np.max(self.xyz[points_idx][0])
-            miny = np.min(self.xyz[points_idx][1])
-            maxy = np.max(self.xyz[points_idx][1])
+            if( np.abs(diff3 - min_diff) <1e-4):
+                self.mug2_odom.pose.pose.position = Point(pose[0], pose[1], pose[2])
+                self.mug2_odom.header.stamp=rospy.Time.now()
+                self.mug2_odom.header.frame_id="map"
 
-            mean_rgb = np.mean(self.rgb[points_idx][:])
-            if( np.sum(np.abs(mean_rgb - np.array( [153, 255, 255] )))<=30 ):
-                print("blue mug")
-            if( np.sum(np.abs(mean_rgb - np.array( [153, 255, 255] )))<=30 ):
-                print("gray mug")
-            if( np.sum(np.abs(mean_rgb - np.array( [255, 255, 229] )))<=30 ):
-                print("white mug")
-
-            print("minx: ", minx)
-            print("maxx: ", maxx)
-            print("miny: ", miny)
-            print("maxy: ", maxy)
-            print("mean_rgb: ", mean_rgb)
+        self.mug_blue.publish(self.mug_blue_odom)
+        self.mug1.publish(self.mug1_odom)
+        self.mug2.publish(self.mug2_odom)
+        number = Int32()
+        number.data = max_label
+        self.mug_number.publish(max_label)
+        # 
+        # print("round end")
 
     def callback(self, pointclouds_msg):
+        print("in call back")
         
-        self.xyz = np.array([[0,0,0]])
-        self.rgb = np.array([[0,0,0]])
-        gen = point_cloud2.read_points(pointclouds_msg, skip_nans=True)
-        int_data = list(gen)
-        for x in int_data:
-            test = x[3] 
-            # cast float32 to int so that bitwise operations are possible
-            s = struct.pack('>f' ,test)
-            i = struct.unpack('>l',s)[0]
-            # you can get back the float value by the inverse operations
-            pack = ctypes.c_uint32(i).value
-            r = (pack & 0x00FF0000)>> 16
-            g = (pack & 0x0000FF00)>> 8
-            b = (pack & 0x000000FF)
-            # prints r,g,b values in the 0-255 range
-            # x,y,z can be retrieved from the x[0],x[1],x[2]
-            xyz = np.append(xyz,[[x[0],x[1],x[2]]], axis = 0)
-            rgb = np.append(rgb,[[r,g,b]], axis = 0)
-        self.xyz = xyz[1:]
-        self.rgb = rgb[1:]
-        self.labels = self.model.fit(self.xyz)
-        self.update_pointcloud()
+        pcd = o3d.geometry.PointCloud()
+        pcd = convertCloudFromRosToOpen3d( pointclouds_msg )
 
+        uniform_down_pcd = pcd.uniform_down_sample(every_k_points=10)
+        # o3d.visualization.draw_geometries([uniform_down_pcd])
+        
+        # print(uniform_down_pcd)
+        
+        labels = np.array(uniform_down_pcd.cluster_dbscan(eps=0.02, min_points=10, print_progress=False))
+
+        self.update_position(uniform_down_pcd, labels)
+
+
+        # pcd = copy.deepcopy(uniform_down_pcd)
+        # max_label = labels.max()
+        # print(f"point cloud has {max_label + 1} clusters")
+        # colors = plt.get_cmap("tab20")(labels / (max_label if max_label > 0 else 1))
+        # colors[labels < 0] = 0
+        # pcd.colors = o3d.utility.Vector3dVector(colors[:, :3])
+        # o3d.visualization.draw_geometries([pcd])
     def run(self):
         rospy.spin()  
 

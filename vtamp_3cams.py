@@ -468,7 +468,7 @@ if __name__ == "__main__":
         "--use_sam_hq", action="store_true", help="using sam-hq for prediction"
     )
     # parser.add_argument("--input_image", type=str, required=True, help="path to image file")
-    parser.add_argument("--text_prompt", type=str, required=False, default="mug. microwave", help="text prompt")
+    parser.add_argument("--text_prompt", type=str, required=False, default="mug", help="text prompt")
     parser.add_argument(
         "--output_dir", "-o", type=str, default="output", help="output directory"
     )
