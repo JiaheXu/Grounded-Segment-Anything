@@ -78,6 +78,17 @@ class grounded_sam():
         self.use_sam_hq = args.use_sam_hq
         #image_path = args.input_image
         self.text_prompt = args.text_prompt
+
+        self.active_object = ""
+        self.passive_object = ""
+        label_list = self.text_prompt.split('.')
+        if( len(label_list) >0 ):
+            self.active_object = label_list[0]
+        if( len(label_list) >1 ):
+            self.passive_object = label_list[1]
+        print("active_object: ", self.active_object)
+        print("passive_object: ", self.passive_object)
+
         self.output_dir = args.output_dir
         self.box_threshold = args.box_threshold
         self.text_threshold = args.text_threshold
@@ -194,7 +205,7 @@ class grounded_sam():
     def transform(self, point, trans):
         # print(trans.shape)
         point = np.array(point)
-        point = trans @ point.reshape(-1,1)
+        point = trans @ ( point.reshape(-1,1) )
         return point[0], point[1], point[2]
 
     def single_callback(self, cam_id, image1, image_depth, trans):
@@ -242,10 +253,14 @@ class grounded_sam():
         label = 1
         for idx, mask in enumerate(masks):
             name, logit = pred_phrases[idx].split('(')
+            # print("name: ", name)
             if(float(logit[:-1]) < 0.5):
                 continue
+            if(name == self.active_object):
+                label = 1
+            if(name == self.passive_object):
+                label = 2
             mask_img[mask.cpu().numpy()[0] == True] = label # 1, 2 for active, passive
-            label += 1
         # image_depth_np[ mask_img == 0] = np.nan
         
         # # rgb point cloud, reference : https://gist.github.com/lucasw/ea04dcd65bc944daea07612314d114bb
@@ -512,7 +527,7 @@ if __name__ == "__main__":
         "--use_sam_hq", action="store_true", help="using sam-hq for prediction"
     )
     # parser.add_argument("--input_image", type=str, required=True, help="path to image file")
-    parser.add_argument("--text_prompt", type=str, required=False, default="boot", help="text prompt")
+    parser.add_argument("--text_prompt", type=str, required=False, default="mug.banana", help="text prompt")
     parser.add_argument(
         "--output_dir", "-o", type=str, default="output", help="output directory"
     )
